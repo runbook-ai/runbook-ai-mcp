@@ -1,6 +1,6 @@
 {
   "name": "runbook-ai-mcp",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "MCP server for browser automation with AI agent",
   "main": "dist/index.js",
   "bin": {
@@ -10,7 +10,6 @@
     "build": "tsc",
     "dev": "tsx src/index.ts",
     "test": "jest",
-    "test:local": "node scripts/test-local.js",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
