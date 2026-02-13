@@ -1,6 +1,19 @@
 # Runbook AI MCP Server
 
-An MCP (Model Context Protocol) server that provides browser automation capabilities through a Chrome extension.
+An MCP (Model Context Protocol) server that provides browser automation capabilities through a Chrome extension. It allows terminal-based agents like **Claude Code** to interact with any website through your live browser session.
+
+https://github.com/user-attachments/assets/a43fba64-bc40-4ef6-9840-e100203e2cf5
+
+## Why Runbook AI?
+
+Most browser-based MCP tools (like `chrome-devtools-mcp`) blow up your LLM context window by sending the entire DOM after every browser action.
+
+**Runbook AI is different:**
+
+* **Optimized Context:** It generates a highly simplified version of the HTML. It strips the junk but keeps essential text and interaction elements. It’s condensed, fast, and won’t eat your tokens.
+* **The Ultimate Catch-all:** If a site doesn't have a dedicated MCP server (like Expedia, LinkedIn, or internal tools), this fills the gap perfectly.
+* **Privacy First:** It runs entirely in your browser. No remote calls except to your chosen LLM provider. No `eval()` or shady scripts (enforced by the Chrome extension sandbox).
+* **Efficient Navigation:** The simplified HTML goes beyond the viewport, making scrolling and multi-page tasks much more efficient.
 
 ## Installation
 
