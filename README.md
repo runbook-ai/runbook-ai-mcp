@@ -2,6 +2,8 @@
 
 An MCP (Model Context Protocol) server that provides browser automation capabilities through a Chrome extension. It allows terminal-based agents like **Claude Code** to interact with any website through your live browser session.
 
+Join the [Discord community](https://discord.gg/SDtXkAKK2B) to provide your feedback and get involved in the development!
+
 https://github.com/user-attachments/assets/a43fba64-bc40-4ef6-9840-e100203e2cf5
 
 ## Why Runbook AI?
