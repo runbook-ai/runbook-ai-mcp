@@ -8,18 +8,21 @@ import {
   CancelledNotificationSchema,
   Tool,
 } from '@modelcontextprotocol/sdk/types.js';
-import { WebSocketServer } from './websocket-server.js';
+import { Hub } from './hub.js';
+import { WorkerClient } from './worker-client.js';
 
 const WS_PORT = parseInt(process.env.WS_PORT || '9003');
 
-// Create WebSocket server for browser extension communication
-const wsServer = new WebSocketServer(WS_PORT);
+// Create components
+let hub: Hub | null = null;
+const worker = new WorkerClient(WS_PORT);
 
-// Track if a tool call is in progress
-let isToolCallInProgress = false;
+// Progress tracking
+let activeProgressToken: string | null = null;
+let progressCount = 0;
 
 // Listen for task-update messages and send progress notifications
-wsServer.on('task-update', (message: any) => {
+worker.on('task-update', (message: any) => {
   const taskUpdate = message.taskUpdate || {};
   
   // Skip tool-response to reduce clutter
@@ -30,10 +33,17 @@ wsServer.on('task-update', (message: any) => {
     data = `${data.arguments?.description || data.name}`;
   }
   
-  // Send progress notification to MCP client
-  const notification = wsServer.sendProgressNotification(data);
-  if (notification) {
-    server.notification(notification);
+  if (activeProgressToken) {
+    progressCount++;
+    server.notification({
+      method: 'notifications/progress',
+      params: {
+        progressToken: activeProgressToken,
+        progress: progressCount,
+        total: undefined,
+        message: data,
+      },
+    });
   }
 });
 
@@ -57,7 +67,7 @@ const BROWSER_AGENT_TOOL: Tool = {
 const server = new Server(
   {
     name: 'runbook-ai-mcp',
-    version: '0.1.0',
+    version: '1.0.5',
   },
   {
     capabilities: {
@@ -76,132 +86,89 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 // Handle cancellation notifications
 server.setNotificationHandler(CancelledNotificationSchema, async (notification) => {
   console.error('[MCP] Received cancellation notification');
-  wsServer.sendCancellation();
+  worker.sendCancellation();
 });
 
 // Handle tool call requests
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
-  const progressToken = (request.params as any)._meta?.progressToken;
-  
-  // Set progress token for notifications
-  wsServer.setProgressToken(progressToken || null);
+  activeProgressToken = (request.params as any)._meta?.progressToken || null;
+  progressCount = 0;
 
   if (name !== 'browser-agent') {
     return {
-      content: [
-        {
-          type: 'text',
-          text: `Error: Unknown tool: ${name}`,
-        },
-      ],
-    };
-  }
-
-  if (!args || typeof args !== 'object') {
-    return {
-      content: [
-        {
-          type: 'text',
-          text: 'Error: Invalid arguments',
-        },
-      ],
+      content: [{ type: 'text', text: `Error: Unknown tool: ${name}` }],
     };
   }
 
   const prompt = (args as any).prompt;
   if (!prompt || typeof prompt !== 'string') {
     return {
-      content: [
-        {
-          type: 'text',
-          text: 'Error: Prompt is required and must be a string',
-        },
-      ],
+      content: [{ type: 'text', text: 'Error: Prompt is required and must be a string' }],
     };
   }
 
-  // Check if extension is connected
-  if (!wsServer.isConnected()) {
+  // Check if worker is connected to hub
+  if (!worker.isConnected()) {
     return {
-      content: [
-        {
-          type: 'text',
-          text: 'Error: Browser extension not connected. Please ensure the extension side panel is open with MCP enabled.',
-        },
-      ],
+      content: [{ type: 'text', text: 'Error: Not connected to Runbook AI Hub. Please wait a few seconds or ensure port 9003 is available.' }],
     };
   }
 
-  // Check if another tool call is in progress
-  if (isToolCallInProgress) {
-    return {
-      content: [
-        {
-          type: 'text',
-          text: 'Error: Another tool call is already in progress. Please wait for it to complete.',
-        },
-      ],
-    };
-  }
-
-  // Set flag to prevent concurrent calls
-  isToolCallInProgress = true;
-
-  let response;
-  try {
-    // Invoke the tool via WebSocket
-    response = await wsServer.invokeTool({
-      name: 'runHeadlessTask',
-      args: { prompt },
-    });
-  } finally {
-    // Clear flag when tool call completes
-    isToolCallInProgress = false;
-  }
+  const response = await worker.invokeTool({
+    name: 'runHeadlessTask',
+    args: { prompt },
+  });
 
   if (response.error) {
     return {
-      content: [
-        {
-          type: 'text',
-          text: `Error: ${response.error}`,
-        },
-      ],
+      content: [{ type: 'text', text: `Error: ${response.error}` }],
     };
   }
 
-  // runHeadlessTask returns { text, taskResult, tokenStats }
   if (response.result?.taskResult?.result) {
-    const resultText = response.result.taskResult.result;
-    
     return {
-      content: [
-        {
-          type: 'text',
-          text: resultText,
-        },
-      ],
+      content: [{ type: 'text', text: response.result.taskResult.result }],
     };
   }
 
   return {
-    content: [
-      {
-        type: 'text',
-        text: 'Error: Unexpected response format from browser extension',
-      },
-    ],
+    content: [{ type: 'text', text: 'Error: Unexpected response format from browser extension' }],
   };
 });
+
+// Hub election and connection loop
+async function maintainConnection() {
+  // If we don't have a hub, try to become one
+  if (!hub) {
+    const newHub = new Hub(WS_PORT);
+    try {
+      await newHub.start();
+      hub = newHub;
+      console.error('[Main] Successfully became the Hub');
+    } catch (err: any) {
+      if (err.code === 'EADDRINUSE') {
+        // Someone else is the hub, that's fine
+      } else {
+        console.error('[Main] Error starting hub:', err);
+      }
+    }
+  }
+
+  // Always try to ensure worker is connected
+  worker.connect();
+
+  // Schedule next check
+  setTimeout(maintainConnection, 3000);
+}
 
 // Start the server
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error('Runbook AI MCP server started');
-  console.error(`WebSocket server listening on port ${WS_PORT}`);
-  console.error(`Connect your Chrome extension to: ws://localhost:${WS_PORT}`);
+  
+  maintainConnection();
 }
 
 main().catch((error) => {
