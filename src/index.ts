@@ -58,6 +58,10 @@ const BROWSER_AGENT_TOOL: Tool = {
         type: 'string',
         description: 'The task prompt for the AI agent to execute',
       },
+      maxIterations: {
+        type: 'number',
+        description: 'Maximum number of iterations for the AI agent (default: 30)',
+      },
     },
     required: ['prompt'],
   },
@@ -67,7 +71,7 @@ const BROWSER_AGENT_TOOL: Tool = {
 const server = new Server(
   {
     name: 'runbook-ai-mcp',
-    version: '1.0.5',
+    version: '1.0.6',
   },
   {
     capabilities: {
@@ -102,6 +106,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 
   const prompt = (args as any).prompt;
+  const maxIterations = (args as any).maxIterations || 30;
   if (!prompt || typeof prompt !== 'string') {
     return {
       content: [{ type: 'text', text: 'Error: Prompt is required and must be a string' }],
@@ -115,9 +120,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     };
   }
 
+  const config = {
+    maxIterations,
+    maxInputTokens: maxIterations * 30000,
+    maxOutputTokens: maxIterations * 1000,
+  };
+
   const response = await worker.invokeTool({
-    name: 'runHeadlessTask',
-    args: { prompt },
+    name: 'runHeadlessTaskWithConfig',
+    args: { prompt, initialTaskState: null, config },
   });
 
   if (response.error) {
