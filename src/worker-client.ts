@@ -99,6 +99,7 @@ export class WorkerClient extends EventEmitter {
 
       const timeout = setTimeout(() => {
         if (this.pendingRequest) {
+          this.sendCancellation();
           this.pendingRequest.resolve({ error: 'Tool invocation timeout after 300 seconds' });
           this.pendingRequest = null;
         }

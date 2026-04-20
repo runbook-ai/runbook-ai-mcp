@@ -95,10 +95,17 @@ export class Hub extends EventEmitter {
     });
 
     ws.on('close', () => {
+      if (this.extensionWs !== ws) return;
       console.error('[Hub] Browser extension disconnected');
       this.extensionWs = null;
-      // Notify all workers that the extension is gone? 
-      // Actually, they will find out when they try to call a tool.
+      if (this.activeWorker && this.activeWorker.readyState === WebSocket.OPEN) {
+        this.activeWorker.send(JSON.stringify({
+          command: 'task-response',
+          error: 'Browser extension disconnected during task.'
+        }));
+      }
+      this.isBusy = false;
+      this.activeWorker = null;
     });
   }
 

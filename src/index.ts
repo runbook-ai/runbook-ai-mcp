@@ -71,7 +71,7 @@ const BROWSER_AGENT_TOOL: Tool = {
 const server = new Server(
   {
     name: 'runbook-ai-mcp',
-    version: '1.0.6',
+    version: '1.0.7',
   },
   {
     capabilities: {
