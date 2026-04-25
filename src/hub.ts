@@ -52,6 +52,25 @@ export class Hub extends EventEmitter {
     console.error('[Hub] Worker connected');
     this.workers.add(ws);
 
+    // Detect dead workers via ping/pong (handles SIGKILL'd processes)
+    const pingInterval = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.ping();
+      }
+    }, 5000);
+    let alive = true;
+    ws.on('pong', () => { alive = true; });
+    const livenessCheck = setInterval(() => {
+      if (!alive) {
+        console.error('[Hub] Worker failed liveness check, terminating');
+        clearInterval(pingInterval);
+        clearInterval(livenessCheck);
+        ws.terminate();
+        return;
+      }
+      alive = false;
+    }, 10000);
+
     ws.on('message', (data) => {
       try {
         const message = JSON.parse(data.toString());
@@ -63,6 +82,8 @@ export class Hub extends EventEmitter {
 
     ws.on('close', () => {
       console.error('[Hub] Worker disconnected');
+      clearInterval(pingInterval);
+      clearInterval(livenessCheck);
       this.workers.delete(ws);
       if (this.activeWorker === ws) {
         this.isBusy = false;
@@ -72,6 +93,11 @@ export class Hub extends EventEmitter {
           this.extensionWs.send(JSON.stringify({ command: 'task-cancellation' }));
         }
       }
+    });
+
+    ws.on('error', (err) => {
+      console.error('[Hub] Worker error:', err.message);
+      // close event will follow and handle cleanup
     });
   }
 
@@ -84,6 +110,20 @@ export class Hub extends EventEmitter {
 
     console.error('[Hub] Browser extension connected');
     this.extensionWs = ws;
+
+    // Extension reconnection (e.g. after reload) invalidates any in-flight task.
+    // The previous extension context is gone, so force-clear busy state.
+    if (this.isBusy) {
+      console.error('[Hub] Clearing stale busy state from previous extension session');
+      if (this.activeWorker && this.activeWorker.readyState === WebSocket.OPEN) {
+        this.activeWorker.send(JSON.stringify({
+          command: 'task-response',
+          error: 'Browser extension was reloaded. Previous task cancelled.'
+        }));
+      }
+      this.isBusy = false;
+      this.activeWorker = null;
+    }
 
     ws.on('message', (data) => {
       try {
