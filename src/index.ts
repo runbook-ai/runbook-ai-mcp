@@ -18,8 +18,15 @@ let hub: Hub | null = null;
 const worker = new WorkerClient(WS_PORT);
 
 // Progress tracking
-let activeProgressToken: string | null = null;
+let activeProgressToken: string | number | null = null;
 let progressCount = 0;
+
+// Track request IDs that the client has cancelled. Any response or progress
+// notification emitted after cancel must be dropped — otherwise the client
+// will see "unknown message ID" / "unknown progress token" and tear down the
+// stdio transport (leaving this worker orphaned).
+const cancelledRequestIds = new Set<string | number>();
+const cancelledProgressTokens = new Set<string | number>();
 
 // Listen for task-update messages and send progress notifications
 worker.on('task-update', (message: any) => {
@@ -33,7 +40,7 @@ worker.on('task-update', (message: any) => {
     data = `${data.arguments?.description || data.name}`;
   }
   
-  if (activeProgressToken) {
+  if (activeProgressToken !== null && !cancelledProgressTokens.has(activeProgressToken)) {
     progressCount++;
     server.notification({
       method: 'notifications/progress',
@@ -71,7 +78,7 @@ const BROWSER_AGENT_TOOL: Tool = {
 const server = new Server(
   {
     name: 'runbook-ai-mcp',
-    version: '1.0.7',
+    version: '1.0.9',
   },
   {
     capabilities: {
@@ -89,7 +96,19 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 
 // Handle cancellation notifications
 server.setNotificationHandler(CancelledNotificationSchema, async (notification) => {
-  console.error('[MCP] Received cancellation notification');
+  const requestId = (notification.params as any)?.requestId;
+  console.error(`[MCP] Received cancellation notification for request ${requestId}`);
+  if (requestId !== undefined && requestId !== null) {
+    cancelledRequestIds.add(requestId);
+    // Drop the cancellation record after a grace period so the set doesn't grow unbounded.
+    setTimeout(() => cancelledRequestIds.delete(requestId), 60_000);
+  }
+  if (activeProgressToken !== null) {
+    cancelledProgressTokens.add(activeProgressToken);
+    const token = activeProgressToken;
+    setTimeout(() => cancelledProgressTokens.delete(token), 60_000);
+    activeProgressToken = null;
+  }
   worker.sendCancellation();
 });
 
@@ -176,9 +195,55 @@ async function maintainConnection() {
 // Start the server
 async function main() {
   const transport = new StdioServerTransport();
+
+  // Wrap transport.send to drop outbound messages for requests that the
+  // client has already cancelled. Sending a response or progress notification
+  // for a cancelled id causes Claude Code (and other MCP clients) to treat it
+  // as a protocol violation and close the transport.
+  const originalSend = transport.send.bind(transport);
+  transport.send = (message: any) => {
+    // Drop responses to cancelled request IDs (result or error).
+    if (
+      message &&
+      typeof message === 'object' &&
+      'id' in message &&
+      message.id !== undefined &&
+      message.id !== null &&
+      ('result' in message || 'error' in message) &&
+      cancelledRequestIds.has(message.id)
+    ) {
+      console.error(`[MCP] Dropping response for cancelled request ${message.id}`);
+      return Promise.resolve();
+    }
+    // Drop progress notifications for cancelled progress tokens.
+    if (
+      message &&
+      typeof message === 'object' &&
+      message.method === 'notifications/progress' &&
+      message.params?.progressToken !== undefined &&
+      cancelledProgressTokens.has(message.params.progressToken)
+    ) {
+      console.error(`[MCP] Dropping progress notification for cancelled token ${message.params.progressToken}`);
+      return Promise.resolve();
+    }
+    return originalSend(message);
+  };
+
+  // When the client closes stdin (e.g. parent Claude Code exits or the
+  // transport is torn down), the SDK's StdioServerTransport does not exit
+  // the process — the ws hub + setTimeout loop keep the event loop alive
+  // and the worker lingers forever as an orphan. Exit explicitly so another
+  // session can take over the hub role cleanly.
+  const exitOnStdinEnd = () => {
+    console.error('[Main] stdin closed, exiting');
+    process.exit(0);
+  };
+  process.stdin.on('end', exitOnStdinEnd);
+  process.stdin.on('close', exitOnStdinEnd);
+
   await server.connect(transport);
   console.error('Runbook AI MCP server started');
-  
+
   maintainConnection();
 }
 
