@@ -44,7 +44,7 @@ describe('Integration Test', () => {
       // Server should send a request
       client.on('message', (data) => {
         const request = JSON.parse(data.toString());
-        expect(request.name).toBe('runHeadlessTask');
+        expect(request.name).toBe('runHeadlessTaskWithConfig');
         expect(request.args.prompt).toBeDefined();
 
         // Send response
