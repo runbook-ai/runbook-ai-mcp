@@ -67,7 +67,7 @@ const BROWSER_AGENT_TOOL: Tool = {
       },
       maxIterations: {
         type: 'number',
-        description: 'Maximum number of iterations for the AI agent (default: 30)',
+        description: 'Maximum number of iterations for the AI agent (default: 15)',
       },
     },
     required: ['prompt'],
@@ -78,7 +78,7 @@ const BROWSER_AGENT_TOOL: Tool = {
 const server = new Server(
   {
     name: 'runbook-ai-mcp',
-    version: '1.0.9',
+    version: '1.0.10',
   },
   {
     capabilities: {
@@ -125,7 +125,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 
   const prompt = (args as any).prompt;
-  const maxIterations = (args as any).maxIterations || 30;
+  const maxIterations = (args as any).maxIterations || 15;
   if (!prompt || typeof prompt !== 'string') {
     return {
       content: [{ type: 'text', text: 'Error: Prompt is required and must be a string' }],
