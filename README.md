@@ -60,6 +60,7 @@ Run a task in Chrome browser with AI and automation capabilities.
 
 **Parameters:**
 - `prompt` (string, required): The task prompt for the AI agent to execute
+- `maxIterations` (number, optional): Maximum number of agent iterations for the task (default: 15). Each iteration is one agent action (navigate, click, type, etc.); raise this for long multi-page tasks. Token budgets scale with it.
 
 **Example:**
 
