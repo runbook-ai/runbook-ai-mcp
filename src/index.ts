@@ -69,6 +69,10 @@ const BROWSER_AGENT_TOOL: Tool = {
         type: 'number',
         description: 'Maximum number of iterations for the AI agent (default: 15)',
       },
+      ephemeral: {
+        type: 'boolean',
+        description: 'Run in an ephemeral browser session (default: true): the task starts on a fresh blank tab, cannot see tabs left by previous runs, and every tab it opens is closed when it finishes. Set to false to continue from the tabs of a previous call and leave the final page open.',
+      },
     },
     required: ['prompt'],
   },
@@ -78,7 +82,7 @@ const BROWSER_AGENT_TOOL: Tool = {
 const server = new Server(
   {
     name: 'runbook-ai-mcp',
-    version: '1.0.10',
+    version: '1.0.11',
   },
   {
     capabilities: {
@@ -143,6 +147,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     maxIterations,
     maxInputTokens: maxIterations * 30000,
     maxOutputTokens: maxIterations * 1000,
+    // Ephemeral by default: MCP calls are independent one-shot runs, so each
+    // starts on a fresh blank tab and cleans up every tab it opened
+    // (auto-chrome/docs/tab-management.md). Pass ephemeral: false to chain
+    // calls that build on the previous call's tabs.
+    ephemeralSession: (args as any).ephemeral !== false,
   };
 
   const response = await worker.invokeTool({
