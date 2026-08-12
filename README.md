@@ -62,6 +62,7 @@ Run a task in Chrome browser with AI and automation capabilities.
 - `prompt` (string, required): The task prompt for the AI agent to execute
 - `maxIterations` (number, optional): Maximum number of agent iterations for the task (default: 15). Each iteration is one agent action (navigate, click, type, etc.); raise this for long multi-page tasks. Token budgets scale with it.
 - `ephemeral` (boolean, optional, default `true`): Each call runs in an isolated browser session — it starts on a fresh blank tab, cannot see tabs left by previous calls, and closes every tab it opened when it finishes. Pass `false` to continue from the tabs of a previous call and leave the final page open (e.g. multi-call workflows that build on the same page).
+- `effort` (string, optional, default `normal`): How much exploration the agent invests — `quick` (one fast pass over loaded content, missing optional details reported as "not specified", tighter iteration budget), `normal` (exploration matched to what the ask requires), or `thorough` (follow all pagination, open detail pages, check candidates one by one, larger iteration budget). Accuracy rules apply at every level.
 
 **Example:**
 

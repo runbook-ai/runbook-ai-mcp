@@ -73,6 +73,11 @@ const BROWSER_AGENT_TOOL: Tool = {
         type: 'boolean',
         description: 'Run in an ephemeral browser session (default: true): the task starts on a fresh blank tab, cannot see tabs left by previous runs, and every tab it opens is closed when it finishes. Set to false to continue from the tabs of a previous call and leave the final page open.',
       },
+      effort: {
+        type: 'string',
+        enum: ['quick', 'normal', 'thorough'],
+        description: "How much exploration the agent invests (default: normal). 'quick': one fast pass over loaded content, missing optional details reported as \"not specified\", tighter iteration budget. 'thorough': follow all pagination, open detail pages, check candidates one by one, larger iteration budget. Accuracy rules apply at every level.",
+      },
     },
     required: ['prompt'],
   },
@@ -82,7 +87,7 @@ const BROWSER_AGENT_TOOL: Tool = {
 const server = new Server(
   {
     name: 'runbook-ai-mcp',
-    version: '1.0.11',
+    version: '1.0.12',
   },
   {
     capabilities: {
@@ -152,6 +157,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     // (auto-chrome/docs/tab-management.md). Pass ephemeral: false to chain
     // calls that build on the previous call's tabs.
     ephemeralSession: (args as any).ephemeral !== false,
+    // Exploration depth (auto-chrome/docs/task-effort.md); unknown values
+    // behave like 'normal' on the extension side.
+    ...(typeof (args as any).effort === 'string' ? { taskEffort: (args as any).effort } : {}),
   };
 
   const response = await worker.invokeTool({
