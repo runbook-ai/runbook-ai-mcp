@@ -87,7 +87,7 @@ const BROWSER_AGENT_TOOL: Tool = {
 const server = new Server(
   {
     name: 'runbook-ai-mcp',
-    version: '1.0.12',
+    version: '1.0.13',
   },
   {
     capabilities: {
@@ -120,6 +120,21 @@ server.setNotificationHandler(CancelledNotificationSchema, async (notification) 
   }
   worker.sendCancellation();
 });
+
+// Budget accounting appended to every result. When the agent wraps up with
+// "ran out of budget" prose, this line is what tells the caller whether it
+// starved on iterations or tokens, and by how much, so maxIterations can be
+// tuned instead of guessed. Extensions older than budgetStats return nothing.
+function formatBudgetFooter(stats: any): string {
+  if (!stats || typeof stats !== 'object') return '';
+  const pair = (used: any, max: any) =>
+    `${used ?? '?'}/${max ?? 'unlimited'}`;
+  const elapsed = typeof stats.elapsedMs === 'number'
+    ? `, elapsed ${Math.round(stats.elapsedMs / 1000)}s` : '';
+  return `\n\n[budget: iterations ${pair(stats.iterationsUsed, stats.maxIterations)}` +
+    `, input tokens ${pair(stats.inputTokens, stats.maxInputTokens)}` +
+    `, output tokens ${pair(stats.outputTokens, stats.maxOutputTokens)}${elapsed}]`;
+}
 
 // Handle tool call requests
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
@@ -175,7 +190,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   if (response.result?.taskResult?.result) {
     return {
-      content: [{ type: 'text', text: response.result.taskResult.result }],
+      content: [{
+        type: 'text',
+        text: response.result.taskResult.result + formatBudgetFooter(response.result.budgetStats),
+      }],
     };
   }
 
