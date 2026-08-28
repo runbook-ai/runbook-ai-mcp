@@ -8,8 +8,10 @@ import {
   CancelledNotificationSchema,
   Tool,
 } from '@modelcontextprotocol/sdk/types.js';
+import path from 'path';
 import { Hub } from './hub.js';
 import { WorkerClient } from './worker-client.js';
+import { writeTaskFiles, formatFilesFooter, imageContentItems, newRunDir, dropResultEcho } from './files.js';
 
 const WS_PORT = parseInt(process.env.WS_PORT || '9003');
 
@@ -57,7 +59,11 @@ worker.on('task-update', (message: any) => {
 // Define the browser-agent tool
 const BROWSER_AGENT_TOOL: Tool = {
   name: 'browser-agent',
-  description: 'Run a task in Chrome browser with AI and automation capabilities',
+  description: 'Run a task in Chrome browser with AI and automation capabilities. ' +
+    'Files the agent produces during the run (data it saves to a file, downloads, extracted datasets, screenshots) ' +
+    'are written to disk on this machine and their absolute paths are listed at the end of the result; ' +
+    'image files are additionally returned inline. To get bulk data (e.g. a scraped list or API payload) without ' +
+    'it flooding the result text, ask the agent to save it to a named file.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -78,6 +84,10 @@ const BROWSER_AGENT_TOOL: Tool = {
         enum: ['quick', 'normal', 'thorough'],
         description: "How much exploration the agent invests (default: normal). 'quick': one fast pass over loaded content, missing optional details reported as \"not specified\", tighter iteration budget. 'thorough': follow all pagination, open detail pages, check candidates one by one, larger iteration budget. Accuracy rules apply at every level.",
       },
+      outputDir: {
+        type: 'string',
+        description: 'Directory on this machine to write files the agent produces (created if missing; existing files with the same name are overwritten). Default: a fresh per-call directory under $RUNBOOK_AI_FILES_DIR or the OS temp dir (runbook-ai-mcp/task-<timestamp>).',
+      },
     },
     required: ['prompt'],
   },
@@ -87,7 +97,7 @@ const BROWSER_AGENT_TOOL: Tool = {
 const server = new Server(
   {
     name: 'runbook-ai-mcp',
-    version: '1.0.13',
+    version: '1.0.14',
   },
   {
     capabilities: {
@@ -150,6 +160,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   const prompt = (args as any).prompt;
   const maxIterations = (args as any).maxIterations || 15;
+  const outputDirArg = (args as any).outputDir;
+  if (outputDirArg !== undefined && (typeof outputDirArg !== 'string' || !outputDirArg.trim())) {
+    return {
+      content: [{ type: 'text', text: 'Error: outputDir must be a non-empty string when provided' }],
+    };
+  }
   if (!prompt || typeof prompt !== 'string') {
     return {
       content: [{ type: 'text', text: 'Error: Prompt is required and must be a string' }],
@@ -189,11 +205,32 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 
   if (response.result?.taskResult?.result) {
+    // Files the agent saved/downloaded ride along on the response as
+    // base64. Write them to disk and hand back paths (never the content --
+    // the point of saving to a file is to keep bulk data out of context);
+    // small images are also returned inline so screenshots are visible.
+    let filesFooter = '';
+    let imageItems: { type: 'image'; data: string; mimeType: string }[] = [];
+    const files = dropResultEcho(response.result.files, response.result.taskResult.result);
+    if (files && typeof files === 'object' && Object.keys(files).length > 0) {
+      const outputDir = outputDirArg ? path.resolve(outputDirArg) : newRunDir();
+      let written;
+      try {
+        written = writeTaskFiles(files, outputDir);
+      } catch (e: any) {
+        written = { outputDir, written: [], failed: [{ name: '*', error: e?.message || String(e) }] };
+      }
+      filesFooter = formatFilesFooter(written);
+      imageItems = imageContentItems(files, written.written);
+    }
     return {
-      content: [{
-        type: 'text',
-        text: response.result.taskResult.result + formatBudgetFooter(response.result.budgetStats),
-      }],
+      content: [
+        {
+          type: 'text',
+          text: response.result.taskResult.result + filesFooter + formatBudgetFooter(response.result.budgetStats),
+        },
+        ...imageItems,
+      ],
     };
   }
 

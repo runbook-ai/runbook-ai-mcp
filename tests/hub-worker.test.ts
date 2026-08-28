@@ -66,6 +66,34 @@ describe('Hub and WorkerClient', () => {
     });
   });
 
+  it('should pass task files through hub to worker unchanged', (done) => {
+    const files = {
+      'orders.json': { name: 'orders.json', mimeType: 'application/json', base64: Buffer.from('[1,2,3]').toString('base64'), size: 7 },
+    };
+    const extension = new WebSocket(`ws://localhost:${TEST_PORT}/`);
+    extension.on('open', () => {
+      worker.on('connected', async () => {
+        extension.on('message', () => {
+          extension.send(JSON.stringify({
+            command: 'task-response',
+            text: 'Task completed',
+            taskResult: { result: 'Saved orders' },
+            files,
+          }));
+        });
+        const response = await worker.invokeTool({
+          name: 'runHeadlessTaskWithConfig',
+          args: { prompt: 'save orders', initialTaskState: null, config: {} }
+        });
+        expect(response.result.taskResult.result).toBe('Saved orders');
+        expect(response.result.files).toEqual(files);
+        extension.close();
+        done();
+      });
+      worker.connect();
+    });
+  });
+
   it('should reject second task if hub is busy', (done) => {
     const extension = new WebSocket(`ws://localhost:${TEST_PORT}/`);
     const worker2 = new WorkerClient(TEST_PORT);

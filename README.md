@@ -63,6 +63,11 @@ Run a task in Chrome browser with AI and automation capabilities.
 - `maxIterations` (number, optional): Maximum number of agent iterations for the task (default: 15). Each iteration is one agent action (navigate, click, type, etc.); raise this for long multi-page tasks. Token budgets scale with it.
 - `ephemeral` (boolean, optional, default `true`): Each call runs in an isolated browser session — it starts on a fresh blank tab, cannot see tabs left by previous calls, and closes every tab it opened when it finishes. Pass `false` to continue from the tabs of a previous call and leave the final page open (e.g. multi-call workflows that build on the same page).
 - `effort` (string, optional, default `normal`): How much exploration the agent invests — `quick` (one fast pass over loaded content, missing optional details reported as "not specified", tighter iteration budget), `normal` (exploration matched to what the ask requires), or `thorough` (follow all pagination, open detail pages, check candidates one by one, larger iteration budget). Accuracy rules apply at every level.
+- `outputDir` (string, optional): Directory on the machine running the MCP server where files produced by the agent are written (created if missing; same-named files are overwritten). Default: a fresh per-call directory `runbook-ai-mcp/task-<timestamp>-<id>` under `$RUNBOOK_AI_FILES_DIR` if set, else the OS temp dir.
+
+**Files:** Anything the agent saves during the run — data it writes to a file (e.g. a scraped list or an API payload it captured with `saveToFile`), downloads, extracted datasets, screenshots — is written to disk and listed at the end of the result text as absolute paths with MIME type and size. File *content* is never inlined into the result, so bulk data stays out of your context; read the files with your own tools. Image files (≤ 4 MB) are additionally returned as inline MCP image content so screenshots are visible directly.
+
+To get bulk data as a file, say so in the prompt, e.g. `"... collect all orders from the account page and save them to orders.json"`.
 
 **Example:**
 
@@ -101,7 +106,7 @@ When a tool is invoked:
 1. MCP client sends request to MCP server via stdio
 2. MCP server forwards request to Chrome extension via WebSocket
 3. Extension executes the task and returns result
-4. Result is sent back to MCP client
+4. Result is sent back to MCP client; files the agent produced are written to disk (`outputDir`) and their paths appended to the result
 
 ## Contributing
 
