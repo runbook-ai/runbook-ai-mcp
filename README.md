@@ -42,6 +42,31 @@ Enable MCP in the extension settings opened from extension side panel.
 
 Set LLM API key, and model name, base URL. Use of Gemini 3 Flash (gemini-3-flash-preview) is recommended. Get your free API key from [Google AI Studio](https://aistudio.google.com/).
 
+### MCP token (recommended)
+
+Without a token, any program that can open a WebSocket to `localhost:9003` can drive your browser. To lock it down, open the extension settings, click **Generate** next to **MCP token**, and save. From then on the extension runs only requests that carry the same token.
+
+Pass the token to the MCP server with `--token`:
+
+```json
+{
+  "mcpServers": {
+    "runbook-ai": {
+      "command": "npx",
+      "args": ["-y", "runbook-ai-mcp@latest", "--token", "<your token>"]
+    }
+  }
+}
+```
+
+or for Claude Code (**Copy setup command** in the settings copies this line):
+
+```
+claude mcp add runbook-ai -- npx -y runbook-ai-mcp@latest --token <your token>
+```
+
+The server also reads `RUNBOOK_AI_MCP_TOKEN` when `--token` is absent; prefer it on shared machines, since command-line arguments are visible to other users in `ps`. A request with a missing or wrong token returns `Error: invalid-mcp-token: ...`. An empty token in the extension settings turns the check off.
+
 By default the extension has access to *all* websites. If you want to limit the access, go to Chrome Extension Details, and add individual sites to Site access setting.
 
 ## Usage

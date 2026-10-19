@@ -16,12 +16,14 @@ export interface BrowserAgentResponse {
 export class WorkerClient extends EventEmitter {
   private ws: WebSocket | null = null;
   private url: string;
+  private token: string;
   private isConnecting: boolean = false;
   private pendingRequest: { resolve: (val: any) => void, reject: (err: any) => void } | null = null;
 
-  constructor(port: number = 9003) {
+  constructor(port: number = 9003, token: string = '') {
     super();
     this.url = `ws://localhost:${port}/hub`;
+    this.token = token;
   }
 
   public connect() {
@@ -71,7 +73,9 @@ export class WorkerClient extends EventEmitter {
     if (message.command === 'task-response') {
       if (this.pendingRequest) {
         if (message.error) {
-          this.pendingRequest.resolve({ error: message.error });
+          // Keep the extension's message (e.g. how to fix invalid-mcp-token).
+          const error = message.message ? `${message.error}: ${message.message}` : message.error;
+          this.pendingRequest.resolve({ error });
         } else {
           const { command, ...result } = message;
           this.pendingRequest.resolve({ result });
@@ -115,7 +119,8 @@ export class WorkerClient extends EventEmitter {
       this.ws!.send(JSON.stringify({
         command: 'task-request',
         name: request.name,
-        args: request.args
+        args: request.args,
+        ...(this.token ? { token: this.token } : {}),
       }));
     });
   }

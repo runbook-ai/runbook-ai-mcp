@@ -66,6 +66,47 @@ describe('Hub and WorkerClient', () => {
     });
   });
 
+  it('should send the token on each request and surface a token rejection', (done) => {
+    const tokenWorker = new WorkerClient(TEST_PORT, 'tok-123');
+    const extension = new WebSocket(`ws://localhost:${TEST_PORT}/`);
+    extension.on('open', () => {
+      tokenWorker.on('connected', async () => {
+        extension.on('message', (data) => {
+          const request = JSON.parse(data.toString());
+          expect(request.token).toBe('tok-123');
+          expect(request.args).toEqual({ prompt: 'x' });
+          extension.send(JSON.stringify({
+            command: 'task-response',
+            error: 'invalid-mcp-token',
+            message: 'Request rejected: missing or wrong MCP token.',
+          }));
+        });
+        const response = await tokenWorker.invokeTool({ name: 'runHeadlessTask', args: { prompt: 'x' } });
+        expect(response.error).toBe('invalid-mcp-token: Request rejected: missing or wrong MCP token.');
+        (tokenWorker as any).ws.close();
+        extension.close();
+        done();
+      });
+      tokenWorker.connect();
+    });
+  });
+
+  it('should send no token field when none is configured', (done) => {
+    const extension = new WebSocket(`ws://localhost:${TEST_PORT}/`);
+    extension.on('open', () => {
+      worker.on('connected', async () => {
+        extension.on('message', (data) => {
+          expect('token' in JSON.parse(data.toString())).toBe(false);
+          extension.send(JSON.stringify({ command: 'task-response', text: 'ok' }));
+        });
+        await worker.invokeTool({ name: 'runHeadlessTask', args: { prompt: 'x' } });
+        extension.close();
+        done();
+      });
+      worker.connect();
+    });
+  });
+
   it('should pass task files through hub to worker unchanged', (done) => {
     const files = {
       'orders.json': { name: 'orders.json', mimeType: 'application/json', base64: Buffer.from('[1,2,3]').toString('base64'), size: 7 },

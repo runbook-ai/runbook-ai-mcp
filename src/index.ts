@@ -11,13 +11,14 @@ import {
 import path from 'path';
 import { Hub } from './hub.js';
 import { WorkerClient } from './worker-client.js';
+import { resolveToken } from './token.js';
 import { writeTaskFiles, formatFilesFooter, imageContentItems, newRunDir, dropResultEcho } from './files.js';
 
 const WS_PORT = parseInt(process.env.WS_PORT || '9003');
 
 // Create components
 let hub: Hub | null = null;
-const worker = new WorkerClient(WS_PORT);
+const worker = new WorkerClient(WS_PORT, resolveToken(process.argv.slice(2), process.env));
 
 // Progress tracking
 let activeProgressToken: string | number | null = null;
