@@ -13,6 +13,7 @@ import { Hub } from './hub.js';
 import { WorkerClient } from './worker-client.js';
 import { resolveToken } from './token.js';
 import { writeTaskFiles, formatFilesFooter, imageContentItems, newRunDir, dropResultEcho } from './files.js';
+import { readTaskInputs, dropInputEcho, formatPreloadFooter, InputError, TaskInputs } from './inputs.js';
 
 const WS_PORT = parseInt(process.env.WS_PORT || '9003');
 
@@ -64,7 +65,9 @@ const BROWSER_AGENT_TOOL: Tool = {
     'Files the agent produces during the run (data it saves to a file, downloads, extracted datasets, screenshots) ' +
     'are written to disk on this machine and their absolute paths are listed at the end of the result; ' +
     'image files are additionally returned inline. To get bulk data (e.g. a scraped list or API payload) without ' +
-    'it flooding the result text, ask the agent to save it to a named file.',
+    'it flooding the result text, ask the agent to save it to a named file. ' +
+    'A skill the agent saves comes back as a folder (<outputDir>/skills/<name>/SKILL.md plus scripts/); ' +
+    'pass that folder in `skills` on a later call to run with it. Pass local files the task needs in `inputFiles`.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -88,6 +91,16 @@ const BROWSER_AGENT_TOOL: Tool = {
       outputDir: {
         type: 'string',
         description: 'Directory on this machine to write files the agent produces (created if missing; existing files with the same name are overwritten). Default: a fresh per-call directory under $RUNBOOK_AI_FILES_DIR or the OS temp dir (runbook-ai-mcp/task-<timestamp>).',
+      },
+      skills: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Skill folders on this machine to run with, each holding a SKILL.md (frontmatter name equal to the folder name) and optional scripts/*.js -- e.g. <outputDir>/skills/<name> from an earlier call. Each is loaded for this run and wins over a stored skill of the same name; it is not saved to the extension. Up to 5 skills (~15k tokens of skill text) load; the result lists any that did not.',
+      },
+      inputFiles: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Files on this machine to give the agent for this run (data to upload or process, reference text, images). Each becomes a task file named by its base name, which the agent can read or upload. 25 MB total.',
       },
     },
     required: ['prompt'],
@@ -173,6 +186,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     };
   }
 
+  const strList = (v: any) => v === undefined || (Array.isArray(v) && v.every(x => typeof x === 'string' && x.trim()));
+  if (!strList((args as any).skills) || !strList((args as any).inputFiles)) {
+    return {
+      content: [{ type: 'text', text: 'Error: skills and inputFiles must be arrays of non-empty path strings' }],
+    };
+  }
+  let inputs: TaskInputs;
+  try {
+    inputs = readTaskInputs((args as any).skills || [], (args as any).inputFiles || []);
+  } catch (e: any) {
+    if (!(e instanceof InputError)) throw e;
+    return { content: [{ type: 'text', text: `Error: ${e.message}` }] };
+  }
+
   // Check if worker is connected to hub
   if (!worker.isConnected()) {
     return {
@@ -192,11 +219,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     // Exploration depth (auto-chrome/docs/task-effort.md); unknown values
     // behave like 'normal' on the extension side.
     ...(typeof (args as any).effort === 'string' ? { taskEffort: (args as any).effort } : {}),
+    // Passed-in skills arrive as draft-skill task files; preloading puts
+    // them under "Loaded skills" from the first turn.
+    ...(inputs.skillNames.length ? { preloadSkills: inputs.skillNames } : {}),
   };
+  const initialTaskState = Object.keys(inputs.files).length ? { savedFiles: inputs.files } : null;
 
   const response = await worker.invokeTool({
     name: 'runHeadlessTaskWithConfig',
-    args: { prompt, initialTaskState: null, config },
+    args: { prompt, initialTaskState, config },
   });
 
   if (response.error) {
@@ -212,7 +243,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     // small images are also returned inline so screenshots are visible.
     let filesFooter = '';
     let imageItems: { type: 'image'; data: string; mimeType: string }[] = [];
-    const files = dropResultEcho(response.result.files, response.result.taskResult.result);
+    const files = dropInputEcho(
+      dropResultEcho(response.result.files, response.result.taskResult.result), inputs.files);
     if (files && typeof files === 'object' && Object.keys(files).length > 0) {
       const outputDir = outputDirArg ? path.resolve(outputDirArg) : newRunDir();
       let written;
@@ -228,7 +260,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       content: [
         {
           type: 'text',
-          text: response.result.taskResult.result + filesFooter + formatBudgetFooter(response.result.budgetStats),
+          text: response.result.taskResult.result + filesFooter +
+            formatPreloadFooter(response.result.preloadedSkills, inputs.skillNames) +
+            formatBudgetFooter(response.result.budgetStats),
         },
         ...imageItems,
       ],

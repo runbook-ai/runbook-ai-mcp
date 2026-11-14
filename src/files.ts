@@ -54,6 +54,18 @@ export function sanitizeFileName(name: string, fallback: string): string {
   return base;
 }
 
+// An agent-chosen file name as a safe path relative to outputDir: each
+// segment sanitized like a basename, empty / "." / ".." segments dropped (no
+// traversal, no absolute paths). Folders are kept so a draft skill
+// (skills/<name>/SKILL.md, skills/<name>/scripts/*.js) lands as a skill
+// folder the caller can pass back in via `skills`.
+export function safeRelativePath(name: string, fallback: string): string {
+  const segs = String(name || '').replace(/\\/g, '/').split('/')
+    .map(seg => seg.replace(/[\x00-\x1f<>:"|?*]/g, '_').trim())
+    .filter(seg => seg && seg !== '.' && seg !== '..');
+  return segs.length ? segs.join('/') : fallback;
+}
+
 export function writeTaskFiles(
   files: Record<string, TaskFile> | undefined | null,
   outputDir: string,
@@ -65,13 +77,14 @@ export function writeTaskFiles(
   fs.mkdirSync(outputDir, { recursive: true });
   entries.forEach(([key, file], i) => {
     const rawName = (file && file.name) || key;
-    const name = sanitizeFileName(rawName, `file-${i + 1}`);
+    const name = safeRelativePath(rawName, `file-${i + 1}`);
     try {
       if (!file || typeof file.base64 !== 'string') {
         throw new Error('missing base64 content');
       }
       const bytes = Buffer.from(file.base64, 'base64');
-      const filePath = path.join(outputDir, name);
+      const filePath = path.join(outputDir, ...name.split('/'));
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
       fs.writeFileSync(filePath, bytes);
       result.written.push({
         name,
@@ -119,7 +132,7 @@ export function imageContentItems(
   Object.entries(files).forEach(([key, file], i) => {
     const mime = file?.mimeType || '';
     if (!mime.startsWith('image/') || typeof file.base64 !== 'string') return;
-    const name = sanitizeFileName(file.name || key, `file-${i + 1}`);
+    const name = safeRelativePath(file.name || key, `file-${i + 1}`);
     const w = writtenByName.get(name);
     const size = w ? w.size : Math.floor(file.base64.length * 3 / 4);
     if (size > MAX_INLINE_IMAGE_BYTES) return;
