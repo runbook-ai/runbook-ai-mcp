@@ -13,6 +13,7 @@ import { Hub } from './hub.js';
 import { WorkerClient } from './worker-client.js';
 import { resolveToken } from './token.js';
 import { writeTaskFiles, formatFilesFooter, imageContentItems, newRunDir, dropResultEcho } from './files.js';
+import { tokenBudgets } from './budget.js';
 import { readTaskInputs, dropInputEcho, formatPreloadFooter, InputError, TaskInputs } from './inputs.js';
 
 const WS_PORT = parseInt(process.env.WS_PORT || '9003');
@@ -111,7 +112,7 @@ const BROWSER_AGENT_TOOL: Tool = {
 const server = new Server(
   {
     name: 'runbook-ai-mcp',
-    version: '1.2.0',
+    version: '1.2.1',
   },
   {
     capabilities: {
@@ -209,8 +210,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   const config = {
     maxIterations,
-    maxInputTokens: maxIterations * 30000,
-    maxOutputTokens: maxIterations * 1000,
+    // Sized from the effort-adjusted iteration count (budget.ts).
+    ...tokenBudgets(maxIterations, (args as any).effort),
     // Ephemeral by default: MCP calls are independent one-shot runs, so each
     // starts on a fresh blank tab and cleans up every tab it opened
     // (auto-chrome/docs/tab-management.md). Pass ephemeral: false to chain
