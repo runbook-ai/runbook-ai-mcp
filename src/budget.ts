@@ -4,7 +4,7 @@
 // well over 30k input tokens -- the old 30k-per-iteration budget ran out
 // long before the iterations did ("Input tokens exceeded limit").
 export const INPUT_TOKENS_PER_ITERATION = 100_000;
-export const OUTPUT_TOKENS_PER_ITERATION = 1_000;
+export const OUTPUT_TOKENS_PER_ITERATION = 4_000;
 
 // The iterations the extension actually allows for an effort level
 // (auto-chrome extension/prompts.js effortMaxIterations; keep in sync):
