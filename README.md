@@ -1,5 +1,7 @@
 # Runbook AI MCP Server
 
+[![runbook-ai/runbook-ai-mcp MCP server](https://glama.ai/mcp/servers/runbook-ai/runbook-ai-mcp/badges/score.svg)](https://glama.ai/mcp/servers/runbook-ai/runbook-ai-mcp)
+
 An MCP (Model Context Protocol) server that provides browser automation capabilities through a Chrome extension. It allows terminal-based agents like **Claude Code** to interact with any website through your live browser session.
 
 Part of the [Runbook AI](https://github.com/runbook-ai/runbook-ai.github.io) ecosystem. Join the [Discord community](https://discord.gg/SDtXkAKK2B) to provide your feedback and get involved in the development!
